@@ -234,8 +234,8 @@ class NMTLossCompute(LossComputeBase):
         return {
             "output": output,
             "target": batch.tgt[range_[0] + 1: range_[1]],
-            "source": batch.src[0][range_[0] + 1: range_[1]],
-            "answer": batch.ans[0][range_[0] + 1: range_[1]],
+            "source": batch.src[0][range_[0]: range_[1]],
+            "answer": batch.ans[0][range_[0]: range_[1]],
         }
 
     def print_output(self, train, output, target, source, answer):
@@ -243,7 +243,11 @@ class NMTLossCompute(LossComputeBase):
         gtruth = target.view(-1)
         l, b_sz = target.size()
         l_src, b_sz_src = source.size()
+        l_ans, b_sz_ans = answer.size()
+
         assert b_sz == b_sz_src
+        assert b_sz == b_sz_ans
+
         if not train:
             logger.info(str(len(scores)) + " " + str(len(gtruth)))
             logger.info(scores.size())
@@ -252,25 +256,35 @@ class NMTLossCompute(LossComputeBase):
             pred = scores.data.max(1)[1]
             gtruth_data = target.view(-1).data
             src_data = source.view(-1).data
+            ans_data = answer.view(-1).data
+
             pred = pred.view(l, b_sz)
             gtruth_data = gtruth_data.view(l, b_sz)
             src_data = src_data.view(l_src, b_sz_src)
+            ans_data = ans_data.view(l_ans, b_sz_ans)
 
             for i in range(b_sz):
                 b_sent = []
                 b_sent_pred = []
                 b_sent_src = []
+                b_sent_ans = []
+
                 for j in range(l):
                     b_sent.append(self.tgt_vocab.itos[gtruth_data[j][i]])
                     b_sent_pred.append(self.tgt_vocab.itos[pred[j][i]])
 
+                for j in range(l_ans):
+                    b_sent_ans.append(self.src_vocab.itos[ans_data[j][i]])
                 for j in range(l_src):
                     b_sent_src.append(self.src_vocab.itos[src_data[j][i]])
+
                 logger.info("Question: " + " ".join(b_sent_src))
+                logger.info("Answer: " + " ".join(b_sent_ans))
                 logger.info("groundtruth: " + " ".join(b_sent))
                 logger.info("prediction: " + " ".join(b_sent_pred))
                 logger.info("\n\n")
                 print("question: " + " ".join(b_sent_src))
+                print("Answer: " + " ".join(b_sent_ans))
                 print("groundtruth: " + " ".join(b_sent))
                 print("prediction: " + " ".join(b_sent_pred))
                 print("\n\n")
