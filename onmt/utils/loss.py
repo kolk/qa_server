@@ -12,7 +12,7 @@ import onmt
 import onmt.inputters as inputters
 from onmt.utils.logging import logger
 
-def build_loss_compute(model, tgt_vocab, opt, train=True):
+def build_loss_compute(model, tgt_vocab, src_vocab, opt, train=True):
     """
     This returns user-defined LossCompute object, which is used to
     compute loss in train/validate process. You can implement your
@@ -26,7 +26,7 @@ def build_loss_compute(model, tgt_vocab, opt, train=True):
             opt.copy_loss_by_seqlength)
     else:
         compute = NMTLossCompute(
-            model.generator, tgt_vocab,
+            model.generator, tgt_vocab, src_vocab,
             label_smoothing=opt.label_smoothing if train else 0.0)
     compute.to(device)
 
@@ -53,10 +53,11 @@ class LossComputeBase(nn.Module):
         normalzation (str): normalize by "sents" or "tokens"
     """
 
-    def __init__(self, generator, tgt_vocab):
+    def __init__(self, generator, tgt_vocab, src_vocab):
         super(LossComputeBase, self).__init__()
         self.generator = generator
         self.tgt_vocab = tgt_vocab
+        self.src_vocab = src_vocab
         self.padding_idx = tgt_vocab.stoi[inputters.PAD_WORD]
 
     def _make_shard_state(self, batch, output, range_, attns=None):
@@ -200,9 +201,9 @@ class NMTLossCompute(LossComputeBase):
     Standard NMT Loss Computation.
     """
 
-    def __init__(self, generator, tgt_vocab, normalization="sents",
+    def __init__(self, generator, tgt_vocab, src_vocab, normalization="sents",
                  label_smoothing=0.0):
-        super(NMTLossCompute, self).__init__(generator, tgt_vocab)
+        super(NMTLossCompute, self).__init__(generator, tgt_vocab, src_vocab)
         assert 0.0 <= label_smoothing <= 1.0
         if label_smoothing > 0:
             # When label smoothing is turned on,
@@ -242,6 +243,7 @@ class NMTLossCompute(LossComputeBase):
         gtruth = target.view(-1)
         l, b_sz = target.size()
         l_src, b_sz_src = source.size()
+        assert b_sz == b_sz_src
         if not train:
             logger.info(str(len(scores)) + " " + str(len(gtruth)))
             logger.info(scores.size())
@@ -263,7 +265,7 @@ class NMTLossCompute(LossComputeBase):
                     b_sent_pred.append(self.tgt_vocab.itos[pred[j][i]])
 
                 for j in range(l_src):
-                    b_sent_src.append(self.tgt_vocab.itos[src_data[j][i]])
+                    b_sent_src.append(self.src_vocab.itos[src_data[j][i]])
                 logger.info("Question: " + " ".join(b_sent_src))
                 logger.info("groundtruth: " + " ".join(b_sent))
                 logger.info("prediction: " + " ".join(b_sent_pred))
@@ -279,53 +281,6 @@ class NMTLossCompute(LossComputeBase):
     def _compute_loss(self, batch, train, output, target):
         scores = self.generator(self._bottle(output))
         gtruth = target.view(-1)
-
-        ########## Modified ###################
-        '''
-        logger.info("scores")
-        logger.info(scores.size())
-        logger.info("target")
-        logger.info(target.size())
-        '''
-
-        '''
-        l, b_sz = target.size()
-        l_src, b_sz_src = source.size()
-        logger.info("")
-        if not train:
-            logger.info(str(len(scores)) + " " + str(len(gtruth)))
-            logger.info(scores.size())
-            logger.info(gtruth.size())
-
-            pred = scores.data.max(1)[1]
-            gtruth_data = target.view(-1).data
-            src_data = source.view(-1).data
-            pred = pred.view(l, b_sz)
-            gtruth_data = gtruth_data.view(l, b_sz)
-            src_data = src_data.view(l_src, b_sz_src)
-
-            for i in range(b_sz):
-                b_sent = []
-                b_sent_pred = []
-                b_sent_src = []
-                for j in range(l):
-                    b_sent.append(self.tgt_vocab.itos[gtruth_data[j][i]])
-                    b_sent_pred.append(self.tgt_vocab.itos[pred[j][i]])
-
-                for j in range(l_src):
-                    b_sent_src.append(self.tgt_vocab.itos[src_data[j][i]])
-                logger.info("Question: " + b_sent_src)
-                logger.info("groundtruth: " + b_sent)
-                logger.info("prediction: " + b_sent_pred)
-
-                print("question: " + b_sent_src)
-                print("groundtruth: " + b_sent)
-                print("prediction: " + b_sent_pred)
-                print("\n\n")
-
-            logger.info("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
-            print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
-        '''
 
         if self.confidence < 1:
             tdata = gtruth.data
